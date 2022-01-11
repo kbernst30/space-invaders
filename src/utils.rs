@@ -1,3 +1,5 @@
+use crate::constants::*;
+
 pub fn is_bit_set(data: &Byte, position: usize) -> bool {
     // Return true if bit at position is
     // set in data, false otherwise
@@ -19,4 +21,12 @@ pub fn get_bit_val(data: &Byte, position: u8) -> u8 {
         true => 1,
         false => 0
     }
+}
+
+pub fn is_even_parity(val: &Byte) -> bool {
+    let mut x = *val;
+    x ^= x >> 4;
+    x ^= x >> 2;
+    x ^= x >> 1;
+    return (!x & 1) == 1;
 }

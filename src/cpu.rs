@@ -1,5 +1,6 @@
 use crate::bus::*;
 use crate::constants::*;
+use crate::ops::*;
 use crate::utils::*;
 
 #[derive(Debug, Copy, Clone)]
@@ -41,7 +42,7 @@ impl Cpu {
             af: RegisterPair { val: 0 },
             bc: RegisterPair { val: 0 },
             de: RegisterPair { val: 0 },
-            hl: RegisterPair { val: 0 }.
+            hl: RegisterPair { val: 0 },
             program_counter: 0,
             stack_pointer: 0,
             bus: bus
@@ -51,12 +52,41 @@ impl Cpu {
     pub fn debug(&self) {
     }
 
+    pub fn execute(&mut self) -> u8 {
+        // Execute operation and return cycles needed execute
+        let op = self.read_memory(self.program_counter);
+        let opcode = OPCODE_MAP
+            .get(&op)
+            .expect(&format!("OpCode 0x{:02x} is not recognized at PC - {:04X}", op, self.program_counter));
+
+        self.program_counter = self.program_counter.wrapping_add(1);
+
+        match opcode.operation {
+            Operation::CMC => self.do_complement_carry(&opcode),
+            Operation::NOP => opcode.cycles,
+            Operation::STC => self.do_set_carry(&opcode),
+            _ => panic!("Unexpected opcode 0x{:02X} encountered", op),
+        }
+    }
+
     fn read_memory(&self, addr: Word) -> Byte {
         self.bus.read_byte(addr)
     }
 
     fn write_memory(&mut self, addr: Word, data: Byte) {
         self.bus.write_byte(addr, data);
+    }
+
+    fn get_next_byte(&mut self) -> Byte {
+        let data = self.read_memory(self.program_counter);
+        self.program_counter = self.program_counter.wrapping_add(1);
+        data
+    }
+
+    fn get_next_word(&mut self) -> Word {
+        let lo = self.get_next_byte();
+        let hi = self.get_next_byte();
+        ((hi as Word) << 8) | lo as Word
     }
 
     fn push_byte_to_stack(&mut self, data: Byte) {
@@ -81,5 +111,169 @@ impl Cpu {
         let lo = self.pop_byte_from_stack();
         let hi = self.pop_byte_from_stack();
         ((hi as Word) << 8) | lo as Word
+    }
+
+    fn is_zero_flag_set(&self) -> bool {
+        unsafe {
+            is_bit_set(&self.af.parts.lo, ZERO_FLAG)
+        }
+    }
+
+    fn is_carry_flag_set(&self) -> bool {
+        unsafe {
+            is_bit_set(&self.af.parts.lo, CARRY_FLAG)
+        }
+    }
+
+    fn is_sign_flag_set(&self) -> bool {
+        unsafe {
+            is_bit_set(&self.af.parts.lo, SIGN_FLAG)
+        }
+    }
+
+    fn is_auxiliary_carry_flag_set(&self) -> bool {
+        unsafe {
+            is_bit_set(&self.af.parts.lo, AUXILIARY_CARRY_FLAG)
+        }
+    }
+
+    fn is_parity_flag_set(&self) -> bool {
+        unsafe {
+            is_bit_set(&self.af.parts.lo, PARITY_FLAG)
+        }
+    }
+
+    fn update_zero_flag(&mut self, val: bool) {
+        unsafe {
+            match val {
+                true => set_bit(&mut self.af.parts.lo, ZERO_FLAG),
+                false => reset_bit(&mut self.af.parts.lo, ZERO_FLAG)
+            };
+        }
+    }
+
+    fn update_carry_flag(&mut self, val: bool) {
+        unsafe {
+            match val {
+                true => set_bit(&mut self.af.parts.lo, CARRY_FLAG),
+                false => reset_bit(&mut self.af.parts.lo, CARRY_FLAG)
+            };
+        }
+    }
+
+    fn update_sign_flag(&mut self, val: bool) {
+        unsafe {
+            match val {
+                true => set_bit(&mut self.af.parts.lo, SIGN_FLAG),
+                false => reset_bit(&mut self.af.parts.lo, SIGN_FLAG)
+            };
+        }
+    }
+
+    fn update_auxiliary_carry_flag(&mut self, val: bool) {
+        unsafe {
+            match val {
+                true => set_bit(&mut self.af.parts.lo, AUXILIARY_CARRY_FLAG),
+                false => reset_bit(&mut self.af.parts.lo, AUXILIARY_CARRY_FLAG)
+            };
+        }
+    }
+
+    fn update_parity_flag(&mut self, val: bool) {
+        unsafe {
+            match val {
+                true => set_bit(&mut self.af.parts.lo, PARITY_FLAG),
+                false => reset_bit(&mut self.af.parts.lo, PARITY_FLAG)
+            };
+        }
+    }
+
+    fn do_complement_carry(&mut self, opcode: &OpCode) -> u8 {
+        self.update_carry_flag(!self.is_carry_flag_set());
+        opcode.cycles
+    }
+
+    fn do_increment(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let res = match opcode.code {
+                0x04 => { self.bc.parts.hi = self.bc.parts.hi.wrapping_add(1); self.bc.parts.hi },
+                0x0C => { self.bc.parts.lo = self.bc.parts.lo.wrapping_add(1); self.bc.parts.lo },
+                0x14 => { self.de.parts.hi = self.de.parts.hi.wrapping_add(1); self.de.parts.hi },
+                0x1C => { self.de.parts.lo = self.de.parts.lo.wrapping_add(1); self.de.parts.lo },
+                0x24 => { self.hl.parts.hi = self.hl.parts.hi.wrapping_add(1); self.hl.parts.hi },
+                0x2C => { self.hl.parts.lo = self.hl.parts.lo.wrapping_add(1); self.hl.parts.lo },
+                0x34 => {
+                    let val = self.read_memory(self.hl.val).wrapping_add(1);
+                    self.write_memory(self.hl.val, val);
+                    val
+                },
+                0x3C => { self.af.parts.hi = self.bc.parts.hi.wrapping_add(1); self.af.parts.hi },
+                _ => panic!("Unexpected code [{:02X}] encountered for INR", opcode.code)
+            };
+
+            self.update_zero_flag(res == 0);
+            self.update_sign_flag(is_bit_set(&res, 7));
+            self.update_auxiliary_carry_flag(res & 0xF == 0);
+            self.update_parity_flag(is_even_parity(&res));
+
+            opcode.cycles
+        }
+    }
+
+    fn do_set_carry(&mut self, opcode: &OpCode) -> u8 {
+        self.update_carry_flag(true);
+        opcode.cycles
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_do_increment() {
+        let mut cpu = Cpu::new(Bus::new());
+        let code = 0x04;
+        let opcode = OPCODE_MAP.get(&code).unwrap();
+
+        cpu.bc.parts.hi = 0;
+        cpu.do_increment(&opcode);
+        unsafe {
+            assert_eq!(cpu.bc.parts.hi, 1);
+            assert_eq!(cpu.is_zero_flag_set(), false);
+            assert_eq!(cpu.is_sign_flag_set(), false);
+            assert_eq!(cpu.is_auxiliary_carry_flag_set(), false);
+            assert_eq!(cpu.is_parity_flag_set(), false);
+        }
+
+        cpu.bc.parts.hi = 0xFF;
+        cpu.do_increment(&opcode);
+        unsafe {
+            assert_eq!(cpu.bc.parts.hi, 0);
+            assert_eq!(cpu.is_zero_flag_set(), true);
+            assert_eq!(cpu.is_sign_flag_set(), false);
+            assert_eq!(cpu.is_auxiliary_carry_flag_set(), true);
+            assert_eq!(cpu.is_parity_flag_set(), true);
+        }
+
+        cpu.bc.parts.hi = 0x7F;
+        cpu.do_increment(&opcode);
+        unsafe {
+            assert_eq!(cpu.bc.parts.hi, 0x80);
+            assert_eq!(cpu.is_zero_flag_set(), false);
+            assert_eq!(cpu.is_sign_flag_set(), true);
+            assert_eq!(cpu.is_auxiliary_carry_flag_set(), true);
+            assert_eq!(cpu.is_parity_flag_set(), false);
+        }
+
+        cpu.bc.parts.hi = 0x80;
+        cpu.do_increment(&opcode);
+        unsafe {
+            assert_eq!(cpu.bc.parts.hi, 0x81);
+            assert_eq!(cpu.is_zero_flag_set(), false);
+            assert_eq!(cpu.is_sign_flag_set(), true);
+            assert_eq!(cpu.is_auxiliary_carry_flag_set(), false);
+            assert_eq!(cpu.is_parity_flag_set(), true);
+        }
     }
 }

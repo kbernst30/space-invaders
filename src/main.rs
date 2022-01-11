@@ -2,6 +2,7 @@ pub mod bus;
 pub mod constants;
 pub mod cpu;
 pub mod emulator;
+pub mod ops;
 pub mod utils;
 
 use sdl2::event::Event;
@@ -34,9 +35,9 @@ fn main() {
         .create_texture_target(PixelFormatEnum::RGB24, DISPLAY_WIDTH, DISPLAY_HEIGHT).unwrap();
 
     let mut emulator = Emulator::new();
-    emulator.run();
 
     'running: loop {
+        emulator.run();
         // texture.update(None, rusty_boy.get_screen(), 160 * 3).unwrap();
 
         canvas.copy(&texture, None, None).unwrap();

@@ -9,8 +9,11 @@ pub const DISPLAY_WIDTH: u32 = 224;
 pub const DISPLAY_HEIGHT: u32 = 256;
 pub const DISPLAY_FACTOR: u32 = 2;
 
+pub const CLOCK_SPEED: usize = 2_000_000;  // 2 MHz
+pub const MAX_CYCLES_PER_FRAME: usize = CLOCK_SPEED / 60;
+
 // We can address from 0 - 65535 in memory (i.e. 0x0000 - 0xFFFF)
-pub const MEMORY_SIZE: Word = 65536;
+pub const MEMORY_SIZE: usize = 65536;
 
 // Flags
 // The following bits are used with register A as a flags Register. The following bits

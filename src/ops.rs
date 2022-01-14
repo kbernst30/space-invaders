@@ -21,6 +21,8 @@ pub enum Operation {
     MOV,
     NOP,
     ORA,
+    POP,
+    PUSH,
     RAL,
     RAR,
     RLC,
@@ -231,6 +233,18 @@ lazy_static! {
         OpCode::new(0xBD, String::from("CMP L"), Operation::CMP, 1, 4, None),
         OpCode::new(0xBE, String::from("CMP M"), Operation::CMP, 1, 7, None),
         OpCode::new(0xBF, String::from("CMP A"), Operation::CMP, 1, 4, None),
+
+        OpCode::new(0xC1, String::from("POP B"), Operation::POP, 1, 10, None),
+        OpCode::new(0xC5, String::from("PUSH B"), Operation::PUSH, 1, 11, None),
+
+        OpCode::new(0xD1, String::from("POP D"), Operation::POP, 1, 10, None),
+        OpCode::new(0xD5, String::from("PUSH D"), Operation::PUSH, 1, 11, None),
+
+        OpCode::new(0xE1, String::from("POP H"), Operation::POP, 1, 10, None),
+        OpCode::new(0xE5, String::from("PUSH H"), Operation::PUSH, 1, 11, None),
+
+        OpCode::new(0xF1, String::from("POP PSW"), Operation::POP, 1, 10, None),
+        OpCode::new(0xF5, String::from("PUSH PSW"), Operation::PUSH, 1, 11, None),
 
     ];
 

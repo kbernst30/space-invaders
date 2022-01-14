@@ -13,8 +13,11 @@ impl Emulator {
         let mut bus = Bus::new();
         bus.load_rom();
 
+        let mut cpu = Cpu::new(bus);
+        cpu.reset();
+
         Emulator {
-            cpu: Cpu::new(bus),
+            cpu: cpu,
             paused: false,
         }
     }

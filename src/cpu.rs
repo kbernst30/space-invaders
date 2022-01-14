@@ -49,6 +49,10 @@ impl Cpu {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.af.val = 0x0001;  // Sets an unsed part of flags that should always be 1
+    }
+
     pub fn debug(&self) {
     }
 
@@ -506,6 +510,34 @@ impl Cpu {
 
             opcode.cycles
         }
+    }
+
+    fn do_pop(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            match opcode.code {
+                0xC1 => self.bc.val = self.pop_word_from_stack(),
+                0xD1 => self.de.val = self.pop_word_from_stack(),
+                0xE1 => self.hl.val = self.pop_word_from_stack(),
+                0xF1 => self.af.val = self.pop_word_from_stack(),
+                _ => panic!("Unexpected code [{:02X}] encountered for POP", opcode.code),
+            };
+        }
+
+        opcode.cycles
+    }
+
+    fn do_push(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            match opcode.code {
+                0xC5 => self.push_word_to_stack(self.bc.val),
+                0xD5 => self.push_word_to_stack(self.de.val),
+                0xE5 => self.push_word_to_stack(self.hl.val),
+                0xF5 => self.push_word_to_stack(self.af.val),
+                _ => panic!("Unexpected code [{:02X}] encountered for PUSH", opcode.code),
+            };
+        }
+
+        opcode.cycles
     }
 
     fn do_rotate_left(&mut self, opcode: &OpCode, through_carry: bool) -> u8 {

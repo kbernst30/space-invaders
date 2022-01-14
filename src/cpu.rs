@@ -73,6 +73,10 @@ impl Cpu {
             Operation::LDAX => self.do_load_accumulator(opcode),
             Operation::MOV => self.do_move(opcode),
             Operation::NOP => opcode.cycles,
+            Operation::RAL => self.do_rotate_left(opcode, true),
+            Operation::RAR => self.do_rotate_right(opcode, true),
+            Operation::RLC => self.do_rotate_left(opcode, false),
+            Operation::RRC => self.do_rotate_right(opcode, false),
             Operation::SBB => self.do_sub(opcode, true),
             Operation::STAX => self.do_store_accumulator(opcode),
             Operation::STC => self.do_set_carry(opcode),
@@ -504,6 +508,37 @@ impl Cpu {
         }
     }
 
+    fn do_rotate_left(&mut self, opcode: &OpCode, through_carry: bool) -> u8 {
+        unsafe {
+            let most_significant_bit = get_bit_val(&self.af.parts.hi, 7);
+            let new_least_significant_bit = match through_carry {
+                true => get_bit_val(&self.af.parts.lo, CARRY_FLAG as u8),
+                false => most_significant_bit,
+            };
+
+            self.af.parts.hi = (self.af.parts.hi << 1) | new_least_significant_bit;
+            self.update_carry_flag(most_significant_bit == 1);
+        }
+
+        opcode.cycles
+    }
+
+    fn do_rotate_right(&mut self, opcode: &OpCode, through_carry: bool) -> u8 {
+        unsafe {
+            let least_significant_bit = get_bit_val(&self.af.parts.hi, 0);
+            let new_most_significant_bit = match through_carry {
+                true => get_bit_val(&self.af.parts.lo, CARRY_FLAG as u8),
+                false => least_significant_bit,
+            };
+
+            self.af.parts.hi = (new_most_significant_bit << 7) | (self.af.parts.hi >> 1);
+            self.update_carry_flag(least_significant_bit == 1);
+        }
+
+        opcode.cycles
+    }
+
+
     fn do_set_carry(&mut self, opcode: &OpCode) -> u8 {
         self.update_carry_flag(true);
         opcode.cycles
@@ -850,6 +885,84 @@ mod tests {
         cpu.do_move(&opcode);
 
         unsafe { assert_eq!(cpu.bc.parts.lo, 0x23); }
+    }
+
+    #[test]
+    fn test_do_rotate_left() {
+        let mut cpu = Cpu::new(Bus::new());
+        let code = 0x07;
+        let opcode = OPCODE_MAP.get(&code).unwrap();
+
+        cpu.af.parts.hi = 0b10101010;
+        cpu.do_rotate_left(&opcode, false);
+
+        unsafe {
+            assert_eq!(cpu.af.parts.hi, 0b01010101);
+            assert_eq!(cpu.is_carry_flag_set(), true);
+        }
+
+        cpu.do_rotate_left(&opcode, false);
+
+        unsafe {
+            assert_eq!(cpu.af.parts.hi, 0b10101010);
+            assert_eq!(cpu.is_carry_flag_set(), false);
+        }
+
+        let code = 0x17;
+        let opcode = OPCODE_MAP.get(&code).unwrap();
+
+        cpu.do_rotate_left(&opcode, true);
+
+        unsafe {
+            assert_eq!(cpu.af.parts.hi, 0b01010100);
+            assert_eq!(cpu.is_carry_flag_set(), true);
+        }
+
+        cpu.do_rotate_left(&opcode, true);
+
+        unsafe {
+            assert_eq!(cpu.af.parts.hi, 0b10101001);
+            assert_eq!(cpu.is_carry_flag_set(), false);
+        }
+    }
+
+    #[test]
+    fn test_do_rotate_right() {
+        let mut cpu = Cpu::new(Bus::new());
+        let code = 0x0F;
+        let opcode = OPCODE_MAP.get(&code).unwrap();
+
+        cpu.af.parts.hi = 0b10101010;
+        cpu.do_rotate_right(&opcode, false);
+
+        unsafe {
+            assert_eq!(cpu.af.parts.hi, 0b01010101);
+            assert_eq!(cpu.is_carry_flag_set(), false);
+        }
+
+        cpu.do_rotate_right(&opcode, false);
+
+        unsafe {
+            assert_eq!(cpu.af.parts.hi, 0b10101010);
+            assert_eq!(cpu.is_carry_flag_set(), true);
+        }
+
+        let code = 0x1F;
+        let opcode = OPCODE_MAP.get(&code).unwrap();
+
+        cpu.do_rotate_right(&opcode, true);
+
+        unsafe {
+            assert_eq!(cpu.af.parts.hi, 0b11010101);
+            assert_eq!(cpu.is_carry_flag_set(), false);
+        }
+
+        cpu.do_rotate_right(&opcode, true);
+
+        unsafe {
+            assert_eq!(cpu.af.parts.hi, 0b01101010);
+            assert_eq!(cpu.is_carry_flag_set(), true);
+        }
     }
 
     #[test]

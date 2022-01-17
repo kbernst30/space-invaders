@@ -72,8 +72,11 @@ impl Cpu {
             Operation::CMA => self.do_complement_accumulator(opcode),
             Operation::CMC => self.do_complement_carry(opcode),
             Operation::DAA => self.do_decimal_adjust_accumulator(opcode),
+            Operation::DAD => self.do_double_add(opcode),
             Operation::DCR => self.do_decrement(opcode),
+            Operation::DCX => self.do_decrement_pair(opcode),
             Operation::INR => self.do_increment(opcode),
+            Operation::INX => self.do_increment_pair(opcode),
             Operation::LDAX => self.do_load_accumulator(opcode),
             Operation::MOV => self.do_move(opcode),
             Operation::NOP => opcode.cycles,
@@ -82,10 +85,13 @@ impl Cpu {
             Operation::RLC => self.do_rotate_left(opcode, false),
             Operation::RRC => self.do_rotate_right(opcode, false),
             Operation::SBB => self.do_sub(opcode, true),
+            Operation::SPHL => self.do_load_stack_pointer(opcode),
             Operation::STAX => self.do_store_accumulator(opcode),
             Operation::STC => self.do_set_carry(opcode),
             Operation::SUB => self.do_sub(opcode, false),
+            Operation::XCHG => self.do_exchange(opcode),
             Operation::XRA => self.do_xor(opcode),
+            Operation::XTHL => self.do_exchange_stack(opcode),
             _ => panic!("Unexpected opcode 0x{:02X} encountered", op),
         }
     }
@@ -373,6 +379,52 @@ impl Cpu {
         }
     }
 
+    fn do_decrement_pair(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            match opcode.code {
+                0x0B => self.bc.val = self.bc.val.wrapping_sub(1),
+                0x1B => self.de.val = self.de.val.wrapping_sub(1),
+                0x2B => self.hl.val = self.hl.val.wrapping_sub(1),
+                0x3B => self.stack_pointer = self.stack_pointer.wrapping_sub(1),
+                _ => panic!("Unexpected code [{:02X}] encountered for DCX", opcode.code)
+            };
+        }
+
+        opcode.cycles
+    }
+
+    fn do_double_add(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let to_add = match opcode.code {
+                0x09 => self.bc.val,
+                0x19 => self.de.val,
+                0x29 => self.hl.val,
+                0x39 => self.stack_pointer,
+                _ => panic!("Unexpected code [{:02X}] encountered for DAD", opcode.code),
+            };
+
+            self.update_carry_flag((self.hl.val as usize) + (to_add as usize) > 0xFFFF);
+            self.hl.val = self.hl.val.wrapping_add(to_add);
+        }
+
+        opcode.cycles
+    }
+
+    fn do_exchange(&mut self, opcode: &OpCode) -> u8 {
+        unsafe { std::mem::swap(&mut self.de.val, &mut self.hl.val); }
+        opcode.cycles
+    }
+
+    fn do_exchange_stack(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let data = self.pop_word_from_stack();
+            self.push_word_to_stack(self.hl.val);
+            self.hl.val = data;
+        }
+
+        opcode.cycles
+    }
+
     fn do_load_accumulator(&mut self, opcode: &OpCode) -> u8 {
         unsafe {
             match opcode.code {
@@ -410,6 +462,25 @@ impl Cpu {
 
             opcode.cycles
         }
+    }
+
+    fn do_increment_pair(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            match opcode.code {
+                0x03 => self.bc.val = self.bc.val.wrapping_add(1),
+                0x13 => self.de.val = self.de.val.wrapping_add(1),
+                0x23 => self.hl.val = self.hl.val.wrapping_add(1),
+                0x33 => self.stack_pointer = self.stack_pointer.wrapping_add(1),
+                _ => panic!("Unexpected code [{:02X}] encountered for INX", opcode.code)
+            };
+        }
+
+        opcode.cycles
+    }
+
+    fn do_load_stack_pointer(&mut self, opcode: &OpCode) -> u8 {
+        unsafe { self.stack_pointer = self.hl.val; }
+        opcode.cycles
     }
 
     fn do_move(&mut self, opcode: &OpCode) -> u8 {
@@ -828,6 +899,86 @@ mod tests {
     }
 
     #[test]
+    fn test_do_decrement_pair() {
+        let mut cpu = Cpu::new(Bus::new());
+        let code = 0x0B;
+        let opcode = OPCODE_MAP.get(&code).unwrap();
+
+        cpu.bc.val = 0x1234;
+        cpu.do_decrement_pair(&opcode);
+
+        unsafe { assert_eq!(cpu.bc.val, 0x1233); }
+    }
+
+    #[test]
+    fn test_do_double_add() {
+        let mut cpu = Cpu::new(Bus::new());
+        let code = 0x09;
+        let opcode = OPCODE_MAP.get(&code).unwrap();
+
+        cpu.bc.val = 0x0005;
+        cpu.hl.val = 0x0008;
+        cpu.do_double_add(&opcode);
+
+        unsafe {
+            assert_eq!(cpu.hl.val, 0x000D);
+            assert_eq!(cpu.is_carry_flag_set(), false);
+        }
+
+        cpu.do_double_add(&opcode);
+
+        unsafe {
+            assert_eq!(cpu.hl.val, 0x0012);
+            assert_eq!(cpu.is_carry_flag_set(), false);
+        }
+
+        cpu.bc.val = 0xFFFF;
+        cpu.hl.val = 0x01;
+        cpu.do_double_add(&opcode);
+
+        unsafe {
+            assert_eq!(cpu.hl.val, 0x00);
+            assert_eq!(cpu.is_carry_flag_set(), true);
+        }
+    }
+
+    #[test]
+    fn test_do_exchange() {
+        let mut cpu = Cpu::new(Bus::new());
+        let code = 0xEB;
+        let opcode = OPCODE_MAP.get(&code).unwrap();
+
+        cpu.de.val = 0x1234;
+        cpu.hl.val = 0xABCD;
+
+        cpu.do_exchange(&opcode);
+
+        unsafe {
+            assert_eq!(cpu.de.val, 0xABCD);
+            assert_eq!(cpu.hl.val, 0x1234);
+        }
+    }
+
+    #[test]
+    fn test_do_exchange_stack() {
+        let mut cpu = Cpu::new(Bus::new());
+        let code = 0xE3;
+        let opcode = OPCODE_MAP.get(&code).unwrap();
+
+        cpu.stack_pointer = 0x10AF;
+        cpu.push_word_to_stack(0x0DF0);
+        cpu.hl.val = 0x0B3C;
+
+        cpu.do_exchange_stack(&opcode);
+
+        unsafe {
+            assert_eq!(cpu.stack_pointer, 0x10AD);
+            assert_eq!(cpu.pop_word_from_stack(), 0x0B3C);
+            assert_eq!(cpu.hl.val, 0x0DF0);
+        }
+    }
+
+    #[test]
     fn test_do_increment() {
         let mut cpu = Cpu::new(Bus::new());
         let code = 0x04;
@@ -872,6 +1023,18 @@ mod tests {
             assert_eq!(cpu.is_auxiliary_carry_flag_set(), false);
             assert_eq!(cpu.is_parity_flag_set(), true);
         }
+    }
+
+    #[test]
+    fn test_do_increment_pair() {
+        let mut cpu = Cpu::new(Bus::new());
+        let code = 0x03;
+        let opcode = OPCODE_MAP.get(&code).unwrap();
+
+        cpu.bc.val = 0x1234;
+        cpu.do_increment_pair(&opcode);
+
+        unsafe { assert_eq!(cpu.bc.val, 0x1235); }
     }
 
     #[test]

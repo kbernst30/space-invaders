@@ -66,11 +66,12 @@ impl Cpu {
         self.program_counter = self.program_counter.wrapping_add(1);
 
         match opcode.operation {
-            Operation::ADD => self.do_add(opcode, false),
-            Operation::ADC => self.do_add(opcode, true),
-            Operation::ANA => self.do_and(opcode),
+            Operation::ADD | Operation::ADI => self.do_add(opcode, false),
+            Operation::ADC | Operation::ACI => self.do_add(opcode, true),
+            Operation::ANA | Operation::ANI => self.do_and(opcode),
             Operation::CMA => self.do_complement_accumulator(opcode),
             Operation::CMC => self.do_complement_carry(opcode),
+            Operation::CMP | Operation::CPI => self.do_compare(opcode),
             Operation::DAA => self.do_decimal_adjust_accumulator(opcode),
             Operation::DAD => self.do_double_add(opcode),
             Operation::DCR => self.do_decrement(opcode),
@@ -78,19 +79,20 @@ impl Cpu {
             Operation::INR => self.do_increment(opcode),
             Operation::INX => self.do_increment_pair(opcode),
             Operation::LDAX => self.do_load_accumulator(opcode),
-            Operation::MOV => self.do_move(opcode),
+            Operation::MOV | Operation::MVI => self.do_move(opcode),
             Operation::NOP => opcode.cycles,
+            Operation::ORA | Operation::ORI => self.do_or(opcode),
             Operation::RAL => self.do_rotate_left(opcode, true),
             Operation::RAR => self.do_rotate_right(opcode, true),
             Operation::RLC => self.do_rotate_left(opcode, false),
             Operation::RRC => self.do_rotate_right(opcode, false),
-            Operation::SBB => self.do_sub(opcode, true),
+            Operation::SBB | Operation::SBI => self.do_sub(opcode, true),
             Operation::SPHL => self.do_load_stack_pointer(opcode),
             Operation::STAX => self.do_store_accumulator(opcode),
             Operation::STC => self.do_set_carry(opcode),
-            Operation::SUB => self.do_sub(opcode, false),
+            Operation::SUB | Operation::SUI => self.do_sub(opcode, false),
             Operation::XCHG => self.do_exchange(opcode),
-            Operation::XRA => self.do_xor(opcode),
+            Operation::XRA | Operation::XRI => self.do_xor(opcode),
             Operation::XTHL => self.do_exchange_stack(opcode),
             _ => panic!("Unexpected opcode 0x{:02X} encountered", op),
         }
@@ -486,6 +488,17 @@ impl Cpu {
     fn do_move(&mut self, opcode: &OpCode) -> u8 {
         unsafe {
             match opcode.code {
+                0x06 => self.bc.parts.hi = self.get_next_byte(),
+                0x0E => self.bc.parts.lo = self.get_next_byte(),
+                0x16 => self.de.parts.hi = self.get_next_byte(),
+                0x1E => self.de.parts.lo = self.get_next_byte(),
+                0x26 => self.hl.parts.hi = self.get_next_byte(),
+                0x2E => self.hl.parts.lo = self.get_next_byte(),
+                0x36 => {
+                    let val = self.get_next_byte();
+                    self.write_memory(self.hl.val, val);
+                },
+                0x3E => self.af.parts.hi = self.get_next_byte(),
                 0x40 => (),
                 0x41 => self.bc.parts.hi = self.bc.parts.lo,
                 0x42 => self.bc.parts.hi = self.de.parts.hi,

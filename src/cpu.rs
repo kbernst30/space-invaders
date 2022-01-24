@@ -79,16 +79,21 @@ impl Cpu {
             Operation::INR => self.do_increment(opcode),
             Operation::INX => self.do_increment_pair(opcode),
             Operation::LDAX => self.do_load_accumulator(opcode),
+            Operation::LHLD => self.do_load_hl_direct(opcode),
             Operation::MOV | Operation::MVI => self.do_move(opcode),
             Operation::NOP => opcode.cycles,
             Operation::ORA | Operation::ORI => self.do_or(opcode),
+            Operation::PCHL => self.do_load_program_counter(opcode),
+            Operation::POP => self.do_pop(opcode),
+            Operation::PUSH => self.do_push(opcode),
             Operation::RAL => self.do_rotate_left(opcode, true),
             Operation::RAR => self.do_rotate_right(opcode, true),
             Operation::RLC => self.do_rotate_left(opcode, false),
             Operation::RRC => self.do_rotate_right(opcode, false),
             Operation::SBB | Operation::SBI => self.do_sub(opcode, true),
+            Operation::SHLD => self.do_store_hl_direct(opcode),
             Operation::SPHL => self.do_load_stack_pointer(opcode),
-            Operation::STAX => self.do_store_accumulator(opcode),
+            Operation::STA | Operation::STAX => self.do_store_accumulator(opcode),
             Operation::STC => self.do_set_carry(opcode),
             Operation::SUB | Operation::SUI => self.do_sub(opcode, false),
             Operation::XCHG => self.do_exchange(opcode),
@@ -432,7 +437,11 @@ impl Cpu {
             match opcode.code {
                 0x0A => self.af.parts.hi = self.read_memory(self.bc.val),
                 0x1A => self.af.parts.hi = self.read_memory(self.de.val),
-                _ => panic!("Unexpected code [{:02X}] encountered for LDAX", opcode.code),
+                0x3A => {
+                    let addr = self.get_next_word();
+                    self.af.parts.hi = self.read_memory(addr);
+                },
+                _ => panic!("Unexpected code [{:02X}] encountered for LDA or LDAX", opcode.code),
             }
         }
 
@@ -477,6 +486,19 @@ impl Cpu {
             };
         }
 
+        opcode.cycles
+    }
+
+    fn do_load_hl_direct(&mut self, opcode: &OpCode) -> u8 {
+        let addr = self.get_next_word();
+        self.hl.parts.lo = self.read_memory(addr);
+        self.hl.parts.hi = self.read_memory(addr.wrapping_add(1));
+
+        opcode.cycles
+    }
+
+    fn do_load_program_counter(&mut self, opcode: &OpCode) -> u8 {
+        unsafe { self.program_counter = self.hl.val; }
         opcode.cycles
     }
 
@@ -665,8 +687,22 @@ impl Cpu {
             match opcode.code {
                 0x02 => self.write_memory(self.bc.val, self.af.parts.hi),
                 0x12 => self.write_memory(self.de.val, self.af.parts.hi),
-                _ => panic!("Unexpected code [{:02X}] encountered for STAX", opcode.code),
+                0x32 => {
+                    let addr = self.get_next_word();
+                    self.write_memory(addr, self.af.parts.hi);
+                },
+                _ => panic!("Unexpected code [{:02X}] encountered for STAX or STA", opcode.code),
             }
+        }
+
+        opcode.cycles
+    }
+
+    fn do_store_hl_direct(&mut self, opcode: &OpCode) -> u8 {
+        unsafe {
+            let addr = self.get_next_word();
+            self.write_memory(addr, self.hl.parts.lo);
+            self.write_memory(addr.wrapping_add(1), self.hl.parts.hi);
         }
 
         opcode.cycles
